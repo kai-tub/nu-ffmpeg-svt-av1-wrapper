@@ -27,14 +27,15 @@ export def "main encode custom-preset" [
 	--duration-sec: int = -1, # By default everything is encoded but with this option the encoding will stop after the given amount of seconds.
 	--start-sec: int = -1, # start offset
 	--num-samples: int = 0, # If provided, the input file length is split into `num-samples` chunks and encoded until `stop-sec` have passed. Requires `stop-sec` to be set and ignores `start-sec` 
-	--max-parallel-sample-encodes: int = 4, # Kinda rough way to encode multiple samples in parallel if `num-sampels` is larger than 1. Should be tuned according to hardware.
+	# --max-parallel-sample-encodes: int = 1, # Kinda rough way to encode multiple samples in parallel if `num-sampels` is larger than 1. Should be tuned according to hardware.
+	# should the num_samples be processed in parallel?
+	# -> Initial tests look like svt-av1 will already take everything it can get. To not overload my system, I will keep it sequential
 ] {
 	let encopts = $"preset=($preset):crf=($crf):film-grain-denoise=($film_grain_denoise | into int):film-grain=($film_grain):enable-tf=($enable_tf | into int):enable-qm=($enable_qm | into int):qm-min=0:tune=($tune | into int)"
 	let duration_opt = match $duration_sec {
 		-1 => [],
 		$val => ["-t" $val]
 	}
-	# should the num_samples be processed in parallel? yeah, but make the number of parallel workers configurable in doubt
 	let start_opts = match $num_samples {
 		0 => (
 			match $start_sec {
@@ -53,7 +54,6 @@ export def "main encode custom-preset" [
 		}
 	}
 
-	# hash encode options for output directory and write a metadata file with the encoding options in a sorted, nice manner
 	let opts = [
 	 	# Ordering is important! Input should usually come first!
 		-i $"($input_path)"
@@ -64,16 +64,15 @@ export def "main encode custom-preset" [
 		-g 240
 		-svtav1-params $"($encopts)"
 		-map_chapters 0 # TODO: Understand if this works!
-		-c:s mov_text # TODO: Understand if this copies the subtitles!
+		# -c:s mov_text # TODO: Understand if this copies the subtitles!
 		-y # overwrite 
 	] ++ $duration_opt 
-	# ++ [
-	# 	$"sample_output.mkv"
-	# ]
-	let opt_hash = ( $opts | sort | str join " " | hash sha256 )
+	# I am not really interested in the other options when comparing many different samples
+	# those should be 'set & forget'
+	let opt_hash = ( $encopts | hash sha256 )
 	mkdir $opt_hash
 	$opts | save -f $"($opt_hash)/config.txt"
-	$start_opts | par-each --threads $max_parallel_sample_encodes {
+	$start_opts | each {
 		|start_opt|
 		let t = $start_opt.1
 		# seek offset should come first because we want to skip over the INPUT not the
