@@ -12,7 +12,10 @@ use log *
 # enable-tf
 # enable-qm + film-grain-denoise just to get a better understanding of what the effects are and if they are useable at all
 
-export def "main encode av1 custom-preset" [
+# Tiny nushell wrapper around the ffmpeg with custom presets for svt-av1 encoder.
+# The main usage is to quickly generate a couple of samples/previews with a given input and
+# iterate over some popular options to weigh the encoding time, size, and quality.
+export def "main encode custom-preset" [
 	input_path: path,
 	--preset: int = 4, # Recommended values for overall preset is either 3, 4, or 5. Where 3 takes considerably longer than 4.
 	--film-grain: int = 8, # Recommended to start with 8 for live action and 15 for noisy movies like 'Indiana Jones'
@@ -24,6 +27,7 @@ export def "main encode av1 custom-preset" [
 	--duration-sec: int = -1, # By default everything is encoded but with this option the encoding will stop after the given amount of seconds.
 	--start-sec: int = -1, # start offset
 	--num-samples: int = 0, # If provided, the input file length is split into `num-samples` chunks and encoded until `stop-sec` have passed. Requires `stop-sec` to be set and ignores `start-sec` 
+	--max-parallel-sample-encodes: int = 4, # Kinda rough way to encode multiple samples in parallel if `num-sampels` is larger than 1. Should be tuned according to hardware.
 ] {
 	let encopts = $"preset=($preset):crf=($crf):film-grain-denoise=($film_grain_denoise | into int):film-grain=($film_grain):enable-tf=($enable_tf | into int):enable-qm=($enable_qm | into int):qm-min=0:tune=($tune | into int)"
 	let duration_opt = match $duration_sec {
@@ -69,8 +73,8 @@ export def "main encode av1 custom-preset" [
 	let opt_hash = ( $opts | sort | str join " " | hash sha256 )
 	mkdir $opt_hash
 	$opts | save -f $"($opt_hash)/config.txt"
-	$start_opts | par-each {
-		|start_opt| 
+	$start_opts | par-each --threads $max_parallel_sample_encodes {
+		|start_opt|
 		let t = $start_opt.1
 		# seek offset should come first because we want to skip over the INPUT not the
 		# output!
